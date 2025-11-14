@@ -1,0 +1,12 @@
+[
+  {
+    "Question": "black-hole?",
+    "Inference Result": "[Mamba]:\n black hole is a region of space where gravity pulls so strongly that nothing, not even light or matter can escape. It was first described by Albert Einstein in 1916 and has been the subject of intense research ever since due to its profound implications for our understanding of physics at such small scales as well as it's potential applications across many fields from medicine to cosmology.\n\nThe study of gravitational waves emitted during an event like neutron star mergers provides us with new insights into how these events occur; we are able to measure their properties accurately which allows us to gain more insight about them than any other type of observation available today (except perhaps x-ray observations).\n",
+    "Information": "** Profile Summary **\nDuration of clearBuffers    : 9.066 ms\nDuration of runPipeline_head : 5535.170 ms\nDuration of tokenizer       : 0.612 ms\nDuration of execute_Prefill : 37.304 ms (x17)\nDuration of execute_Decode  : 37.338 ms (x130)"
+  },
+  {
+    "Question": "Explain quantum computing in some items.?",
+    "Inference Result": "[Mamba]:\n computing is a new technology that uses quantum principles to solve problems beyond the abilities of classical computers. It was first introduced in 1995 and has since revolutionized many fields, including medicine (diagnosing diseases), finance (predicting financial transactions) and even industry automation (automating manufacturing).\n\nIn this article we will discuss some key features about how Quantum Computing works:\n",
+    "Information": "** Profile Summary **\nDuration of clearBuffers    : 8.912 ms\nDuration of runPipeline_head : 3579.435 ms\nDuration of tokenizer       : 0.188 ms\nDuration of execute_Prefill : 37.438 ms (x21)\nDuration of execute_Decode  : 37.627 ms (x73)"
+  }
+]
