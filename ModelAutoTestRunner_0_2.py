@@ -121,7 +121,7 @@ def run_conversation_processor(execute_info, model):
             recrusive_process.expect_exact("[Input]:")
             # print("[Interactive session ready - MAMBA ✅]")
         elif "llama-8B" in model_file:
-            recrusive_process.expect(r'Please enter your question:')
+            recrusive_process.expect("Please enter your question:")
             # print("[Interactive session ready - llama-8b ✅]")
         else:
             recrusive_process.expect(r'- Not using system message.')
@@ -168,66 +168,46 @@ def response_mamba(llm_processor):
     return output_lines
 
 def response_llama_8b(llm_processor):
-    output_lines = []
-    """
-    LLaMA 8B 인터랙티브 세션에서 질문 후 최종 완성 답변만 추출.
-    - [Input]: 프롬프트가 나타나기 직전까지 출력(before)만 사용
-    """
-    INFER = ""  # 최종 완성 답변 저장
+    all_lines = []
 
     while True:
         try:
-            idx = llm_processor.expect([
-                r'Please enter your question:',  # 다음 입력 프롬프트
-                pexpect.EOF,
-                pexpect.TIMEOUT
-            ], timeout=180)
+            idx = llm_processor.expect([r'Please enter your question:', pexpect.EOF, pexpect.TIMEOUT], timeout=120)
         except pexpect.TIMEOUT:
-            print("[WARN] Timeout waiting for output")
+            print("\n[WARN] Timeout…")
             break
         except pexpect.EOF:
-            print("[INFO] Process finished")
+            print("\n[INFO] Process finished")
             break
 
-        # 항상 before에 있는 내용을 덮어써서 마지막 출력만 INFER에 저장
-        if llm_processor.before:
-            INFER = llm_processor.before.strip()
+        # 스트림 출력 누적
+        chunk = llm_processor.before
+        if chunk:
+            for line in chunk.splitlines():
+                stripped = line.strip()
+                if stripped != "":
+                    all_lines.append(stripped)
 
         if idx == 0:
-            # 프롬프트 도착 → 최종 완성 출력 확보 후 루프 종료
             break
-        elif idx == 1:
-            # EOF → 프로세스 종료
-            break
-        elif idx == 2:
-            # TIMEOUT → 루프 종료
-            break
-    
-    output_lines.append(INFER)
-    return output_lines
+
+    return all_lines
 
 
 def run_conversation(llm_processor, prompt, execute_info, model):
-
 
     if llm_processor is None:
         print("[ERROR] Recrusive process is not running!")
         return None
 
-    # print(f"\n📢 Input:\n{prompt}")
-
-    # pexpect 사용: sendline
     llm_processor.sendline(prompt)
 
     output_lines = []
 
-    if "Mamba" in execute_info[model]["model"]:
-        output_lines = response_mamba(llm_processor=llm_processor)
-    elif "llama-8B" in execute_info[model]["model"]:
+    if "llama-8B" in execute_info[model]["model"]:
         output_lines = response_llama_8b(llm_processor=llm_processor)
 
 
-    # output = ''.join(output_lines)
     inference_result = parse_output_conversation(prompt, output_lines, execute_info, model)
     return inference_result
 
@@ -240,44 +220,88 @@ def remove_ansi(text: str) -> str:
     return ansi_escape.sub('', text)
 
 def parse_output_conversation(prompt, output_lines: list, execute_info, model):
-    list2string = "".join(output_lines)
+    result = {
+        "Question": "prompt",
+        "Inference Result": "final_output",
+        "Detailed Items": "info_text"
+    }
 
-    lines = list2string.splitlines()
+    if "llama-8B" in execute_info[model]["model"]:
+        # 마지막 [generate tokens so far batch_id] 이후부터 [INFO_TSK] 직전까지 추출
+        last_gen_idx = None
+        info_idx = None
 
-    inference_lines = []
-    info_lines = []
-    result = {}
+        # 마지막 [tsk_llama_8b_begin] 위치 찾기
+        for i, line in enumerate(output_lines):
+            if line.startswith("[tsk_llama_8b_begin]:"):
+                last_gen_idx = i
+        # [INFO_TSK] 위치 찾기
+        for i, line in enumerate(output_lines):
+            if line.startswith("[INFO_TSK]"):
+                info_idx = i
+                break
 
-    for line in lines:
-        # [INFO] 정보 수집
-        if "[INFO_TSK]" in line:
-            info_lines.append(remove_ansi(line))
-        # 모델 응답 텍스트
-        # elif line.strip() not in ["", ">"] and not line.lstrip().startswith("llama_memory_breakdown_print"):
+        if last_gen_idx is not None:
+            start = last_gen_idx + 1
         else:
-            inference_lines.append(remove_ansi(line))
+            start = 0
 
+        end = info_idx if info_idx is not None else len(output_lines)
+        final_output = "\n".join(output_lines[start:end]).strip()
 
-
-
-    if "Mamba" in execute_info[model]["model"]:
-        remove_question = inference_lines[1:] if len(inference_lines) > 1 else []
-
-        profile_index = next((i for i, line in enumerate(remove_question) if "profile summary" in line.lower()), None)
-
-        if profile_index is not None:
-            inference_text = "\n".join(remove_question[:profile_index])
-            info_text = "\n".join(remove_question[profile_index:] + info_lines)
-        else:
-            # profile summary 없을 때 처리
-            inference_text = "\n".join(remove_question)
-            info_text = "\n".join(info_lines)
+        # Information 추출 ([INFO_TSK] 한 줄) 존재하지 않으면 None
+        info_text = output_lines[info_idx].strip() if info_idx is not None else "None"
 
         result = {
             "Question": prompt,
-            "Inference Result": inference_text,
-            "Information": info_text
+            "Inference Result": final_output,
+            "Detailed Items": info_text
         }
+
+        print(f"\n[SAVED FINAL OUTPUT] {final_output}")
+
+
+
+
+
+    # list2string = "".join(output_lines)
+    #
+    # lines = list2string.splitlines()
+    #
+    # inference_lines = []
+    # info_lines = []
+    # result = {}
+    #
+    # for line in lines:
+    #     # [INFO] 정보 수집
+    #     if "[INFO_TSK]" in line:
+    #         info_lines.append(remove_ansi(line))
+    #     # 모델 응답 텍스트
+    #     # elif line.strip() not in ["", ">"] and not line.lstrip().startswith("llama_memory_breakdown_print"):
+    #     else:
+    #         inference_lines.append(remove_ansi(line))
+    #
+    #
+    #
+    #
+    # if "Mamba" in execute_info[model]["model"]:
+    #     remove_question = inference_lines[1:] if len(inference_lines) > 1 else []
+    #
+    #     profile_index = next((i for i, line in enumerate(remove_question) if "profile summary" in line.lower()), None)
+    #
+    #     if profile_index is not None:
+    #         inference_text = "\n".join(remove_question[:profile_index])
+    #         info_text = "\n".join(remove_question[profile_index:] + info_lines)
+    #     else:
+    #         # profile summary 없을 때 처리
+    #         inference_text = "\n".join(remove_question)
+    #         info_text = "\n".join(info_lines)
+    #
+    #     result = {
+    #         "Question": prompt,
+    #         "Inference Result": inference_text,
+    #         "Detailed Items": info_text
+    #     }
 
     return result
 
@@ -324,6 +348,8 @@ def parse_output(output_text):
                 token_generation_processing_speed = float(match.group(4))
                 total_processing_latency = float(match.group(5))
 
+                info_lines.append("")
+                info_lines.append("")
                 # [INFO_TSK] 내용은 출력하지 않고, >> 요약만 출력
                 info_lines.append(f">> Token Generation Length Inference: {token_generation_length_inference}")
                 info_lines.append(f">> Token Generation Length Prompt: {token_generation_length_prompt}")
@@ -387,7 +413,7 @@ def run_single_shot(prompt, execute_info, model):
     return {
         "Question": prompt,
         "Inference Result": inference_result,
-        "Information": profile_info
+        "Detailed Items": profile_info
     }
 
 def main(file_path, language, execute_info, model):
@@ -436,8 +462,10 @@ def main(file_path, language, execute_info, model):
         if not device_exist:
             break
 
-    
-    llm_processor.close()
+    if llm_processor is not None:
+        llm_processor.close()
+
+
     # Result 폴더 생성
     RESULT_DIR = "Result"
     os.makedirs(RESULT_DIR, exist_ok=True)
@@ -461,7 +489,7 @@ def main(file_path, language, execute_info, model):
         row = {
             "Question": result["Question"],
             "Inference Result": result["Inference Result"],
-            "Information": "\n".join(result["Information"]) if isinstance(result["Information"], list) else str(result["Information"])
+            "Detailed Items": "\n".join(result["Detailed Items"]) if isinstance(result["Detailed Items"], list) else str(result["Detailed Items"])
         }
         excel_data.append(row)
 
@@ -488,7 +516,7 @@ def get_model_info():
             "execute_cmd": "MambaTest",
             "execute_path": "/data/local/tmp/MAMBA/",
             "model": "Mamba",
-            "type": "Recrusive"   #"One-Shot"
+            "type": "One-Shot"   #"One-Shot"
         },
         "llama-1B": {
             "execute_cmd": "llama-cli",
@@ -519,13 +547,13 @@ if __name__ == "__main__":
     test_language = "English"   # 또는 "Chinese"
     # test_language = "Chinese"
 
-    model = "NNC-Mamba"
-    # model = "llama-8B"
+    # model = "NNC-Mamba"
+    model = "llama-8B"
     # model = "llama-1B"
     # model = "llama-3B"
 
-    scenario_file = "Scenario/test_ces_llm_questions_all_categories_100.json" 
-    # scenario_file = "Scenario/ces_llm_questions_all_categories_100.json"
+    # scenario_file = "Scenario/test_ces_llm_questions_all_categories_100.json"
+    scenario_file = "Scenario/ces_llm_questions_all_categories_100.json"
 
     ##################### User Selection End #####################
     
