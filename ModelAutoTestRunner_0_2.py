@@ -233,7 +233,7 @@ def parse_output_conversation(prompt, output_lines: list, execute_info, model):
 
         # 마지막 [tsk_llama_8b_begin] 위치 찾기
         for i, line in enumerate(output_lines):
-            if line.startswith("[tsk_llama_8b_begin]:"):
+            if line.startswith("[generate tokens so far]:"):
                 last_gen_idx = i
         # [INFO_TSK] 위치 찾기
         for i, line in enumerate(output_lines):
