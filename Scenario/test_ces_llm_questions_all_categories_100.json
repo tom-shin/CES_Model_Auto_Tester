@@ -1,8 +1,12 @@
 {
   "Science": [
 
-       {
+    {
       "English": "how is the weather today ?",
+      "Chinese": "你能解释一下黑洞吗？"
+    },
+    {
+      "English": "hi ?",
       "Chinese": "你能解释一下黑洞吗？"
     }
 

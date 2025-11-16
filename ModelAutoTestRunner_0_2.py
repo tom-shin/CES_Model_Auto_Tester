@@ -258,7 +258,7 @@ def parse_output_conversation(prompt, output_lines: list, execute_info, model):
             "Detailed Items": info_text
         }
 
-        print(f"\n[SAVED FINAL OUTPUT] {final_output}")
+        # print(f"\n[SAVED FINAL OUTPUT] {final_output}")
 
 
 
@@ -454,24 +454,21 @@ def main(file_path, language, execute_info, model):
             print(f"{BLUE}=================== 현재 Category: {category},  ({idx}/{total_cnt}) th Test Done. {round(idx/total_cnt*100, 2)} %. ==================={RESET}\n")
             idx += 1
 
-            device_exist = check_adb_devices()
-
-            if not device_exist:
-                break
-
-        if not device_exist:
-            break
+        data_save(all_results, language)
 
     if llm_processor is not None:
         llm_processor.close()
 
+    # data_save(all_results, language)
+    return all_results
 
+def data_save(all_results, language):
     # Result 폴더 생성
     RESULT_DIR = "Result"
     os.makedirs(RESULT_DIR, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    suffix = "full" if device_exist else "partial"
+    suffix = "full" #if device_exist else "partial"
 
     # 파일 경로 변경 (Result/ 폴더에 저장)
     json_filename = os.path.join(RESULT_DIR, f"{model}_Result_{language}_{suffix}_{timestamp}.json")
@@ -481,7 +478,6 @@ def main(file_path, language, execute_info, model):
 
     print(f"{YELLOW}✅ JSON saved to: {json_filename}{RESET}")
 
-
     excel_filename = os.path.join(RESULT_DIR, f"{model}_Result_{language}_{suffix}_{timestamp}.xlsx")
     excel_data = []
 
@@ -489,7 +485,8 @@ def main(file_path, language, execute_info, model):
         row = {
             "Question": result["Question"],
             "Inference Result": result["Inference Result"],
-            "Detailed Items": "\n".join(result["Detailed Items"]) if isinstance(result["Detailed Items"], list) else str(result["Detailed Items"])
+            "Detailed Items": "\n".join(result["Detailed Items"]) if isinstance(result["Detailed Items"],
+                                                                                list) else str(result["Detailed Items"])
         }
         excel_data.append(row)
 
@@ -507,8 +504,6 @@ def main(file_path, language, execute_info, model):
     wb.save(excel_filename)
     print(f"{YELLOW}✅ Excel saved to: {excel_filename} (Left & Top aligned){RESET}")
 
-
-    return all_results
 
 def get_model_info():
     execute_info = {
