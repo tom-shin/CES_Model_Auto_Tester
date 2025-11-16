@@ -181,12 +181,7 @@ def response_llama_8b(llm_processor):
             break
 
         # 스트림 출력 누적
-        chunk = llm_processor.before
-        if chunk:
-            for line in chunk.splitlines():
-                stripped = line.strip()
-                if stripped != "":
-                    all_lines.append(stripped)
+        all_lines.append(llm_processor.before)
 
         if idx == 0:
             break
@@ -227,84 +222,23 @@ def parse_output_conversation(prompt, output_lines: list, execute_info, model):
     }
 
     if "llama-8B" in execute_info[model]["model"]:
-        # 마지막 [generate tokens so far batch_id] 이후부터 [INFO_TSK] 직전까지 추출
-        last_gen_idx = None
-        info_idx = None
+        try:
+            list2string = "".join(output_lines)
+            lines = list2string.splitlines()
 
-        # 마지막 [tsk_llama_8b_begin] 위치 찾기
-        for i, line in enumerate(output_lines):
-            if line.startswith("[generate tokens so far]:"):
-                last_gen_idx = i
-        # [INFO_TSK] 위치 찾기
-        for i, line in enumerate(output_lines):
-            if line.startswith("[INFO_TSK]"):
-                info_idx = i
-                break
-
-        if last_gen_idx is not None:
-            start = last_gen_idx + 1
-        else:
-            start = 0
-
-        end = info_idx if info_idx is not None else len(output_lines)
-        final_output = "\n".join(output_lines[start:end]).strip()
-
-        # Information 추출 ([INFO_TSK] 한 줄) 존재하지 않으면 None
-        info_text = output_lines[info_idx].strip() if info_idx is not None else "None"
+            info_lines = lines[-1]
+            inference_lines = "\n".join(lines[:-2])
+        except:
+            inference_lines = "idx error"
+            info_lines = "not exist"
 
         result = {
             "Question": prompt,
-            "Inference Result": final_output,
-            "Detailed Items": info_text
+            "Inference Result": inference_lines,
+            "Detailed Items": info_lines
         }
 
-        # print(f"\n[SAVED FINAL OUTPUT] {final_output}")
-
-
-
-
-
-    # list2string = "".join(output_lines)
-    #
-    # lines = list2string.splitlines()
-    #
-    # inference_lines = []
-    # info_lines = []
-    # result = {}
-    #
-    # for line in lines:
-    #     # [INFO] 정보 수집
-    #     if "[INFO_TSK]" in line:
-    #         info_lines.append(remove_ansi(line))
-    #     # 모델 응답 텍스트
-    #     # elif line.strip() not in ["", ">"] and not line.lstrip().startswith("llama_memory_breakdown_print"):
-    #     else:
-    #         inference_lines.append(remove_ansi(line))
-    #
-    #
-    #
-    #
-    # if "Mamba" in execute_info[model]["model"]:
-    #     remove_question = inference_lines[1:] if len(inference_lines) > 1 else []
-    #
-    #     profile_index = next((i for i, line in enumerate(remove_question) if "profile summary" in line.lower()), None)
-    #
-    #     if profile_index is not None:
-    #         inference_text = "\n".join(remove_question[:profile_index])
-    #         info_text = "\n".join(remove_question[profile_index:] + info_lines)
-    #     else:
-    #         # profile summary 없을 때 처리
-    #         inference_text = "\n".join(remove_question)
-    #         info_text = "\n".join(info_lines)
-    #
-    #     result = {
-    #         "Question": prompt,
-    #         "Inference Result": inference_text,
-    #         "Detailed Items": info_text
-    #     }
-
     return result
-
 
 def remove_ansi_codes(text):
     ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
@@ -547,8 +481,8 @@ if __name__ == "__main__":
     # model = "llama-1B"
     # model = "llama-3B"
 
-    # scenario_file = "Scenario/test_ces_llm_questions_all_categories_100.json"
-    scenario_file = "Scenario/ces_llm_questions_all_categories_100.json"
+    scenario_file = "Scenario/test_ces_llm_questions_all_categories_100.json"
+    # scenario_file = "Scenario/ces_llm_questions_all_categories_100.json"
 
     ##################### User Selection End #####################
     
