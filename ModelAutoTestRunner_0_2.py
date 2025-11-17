@@ -423,10 +423,15 @@ def main(file_path, language, execute_info, model):
     idx = 1
     total_cnt = sum(len(v) for v in questions.values())
 
+
+    cnt_count = 10
+    cnt_idx = 0
+
     for category, question_list in questions.items():    
             
         # print(f"\n{RED}================================ Category: {category} ================================ {RESET}")
         for _, q in enumerate(question_list):
+
             prompt = q[language]
             # print(f"{prompt}")
             time.sleep(1.5)
@@ -440,12 +445,14 @@ def main(file_path, language, execute_info, model):
             print(f"{BLUE}=================== 현재 Category: {category},  ({idx}/{total_cnt}) th Test Done. {round(idx/total_cnt*100, 2)} %. ==================={RESET}\n")
             idx += 1
 
-        data_save(all_results, language)
+            cnt_idx += 1
+            if (cnt_idx % cnt_count) == 0:
+                data_save(all_results, language)
 
     if llm_processor is not None:
         llm_processor.close()
 
-    # data_save(all_results, language)
+    data_save(all_results, language)
     return all_results
 
 def data_save(all_results, language):
