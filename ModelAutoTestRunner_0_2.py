@@ -171,34 +171,39 @@ def response_mamba(llm_processor):
 def response_llama_1b3b_gguf(llm_processor):
     all_lines = ""
 
-    def to_text(x):
-        if isinstance(x, bytes):
-            return x.decode('utf-8', errors='ignore')
-        return x if x is not None else ""
+    try:
 
-    while True:
-        try:
-            # 정규식 말고 문자열 포함 여부를 위해 우선 ANY 문자만 매칭
-            idx = llm_processor.expect([r'.+', pexpect.EOF, pexpect.TIMEOUT],
-                                       timeout=120)
-        except pexpect.TIMEOUT:
-            print("\n[WARN] Timeout…")
-            break
-        except pexpect.EOF:
-            print("\n[INFO] Process finished")
-            break
+        def to_text(x):
+            if isinstance(x, bytes):
+                return x.decode('utf-8', errors='ignore')
+            return x if x is not None else ""
 
-        # 직전 출력 + 매칭된 문자열(이번 라인 전체)
-        before_txt = to_text(llm_processor.before)
-        matched_txt = to_text(llm_processor.match.group())
+        while True:
+            try:
+                # 정규식 말고 문자열 포함 여부를 위해 우선 ANY 문자만 매칭
+                idx = llm_processor.expect([r'.+', pexpect.EOF, pexpect.TIMEOUT],
+                                           timeout=120)
+            except pexpect.TIMEOUT:
+                print("\n[WARN] Timeout…")
+                break
+            except pexpect.EOF:
+                print("\n[INFO] Process finished")
+                break
 
-        # 한 줄로 합쳐서 저장
-        full_line = before_txt + matched_txt
-        all_lines += full_line
+            # 직전 출력 + 매칭된 문자열(이번 라인 전체)
+            before_txt = to_text(llm_processor.before)
+            matched_txt = to_text(llm_processor.match.group())
 
-        # 문자열 포함 여부만으로 체크
-        if "[INFO_TSK]" in full_line:
-            break
+            # 한 줄로 합쳐서 저장
+            full_line = before_txt + matched_txt
+            all_lines += full_line
+
+            # 문자열 포함 여부만으로 체크
+            if "[INFO_TSK]" in full_line:
+                break
+
+    except:
+        pass
 
     return [all_lines]
 
@@ -279,18 +284,20 @@ def parse_output_conversation(prompt, output_lines: list, execute_info, model):
             "Detailed Items": info_lines
         }
     elif "gguf" in execute_info[model]["model"]:
-        sep = "".join(output_lines).split("[INFO_TSK]")
+        try:
+            sep = "".join(output_lines).split("[INFO_TSK]")
 
-        full = sep[0].replace(prompt, "", 1)
-        result = {
-            "Question": prompt,
-            "Inference Result": "".join(full),
-            "Detailed Items": rf"[INFO_TSK]{sep[1]}"
-        }
-
-
+            full = sep[0].replace(prompt, "", 1)
+            result = {
+                "Question": prompt,
+                "Inference Result": "".join(full),
+                "Detailed Items": rf"[INFO_TSK]{sep[1]}"
+            }
+        except:
+            pass
 
     return result
+
 
 def remove_ansi_codes(text):
     ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
@@ -532,13 +539,13 @@ if __name__ == "__main__":
 
     ##################### User Selection #####################
 
-    test_language = "English"   # 또는 "Chinese"
-    # test_language = "Chinese"
+    # test_language = "English"   # 또는 "Chinese"
+    test_language = "Chinese"
 
     # model = "NNC-Mamba"
-    # model = "llama-8B"
+    model = "llama-8B"
     # model = "llama-1B"
-    model = "llama-3B"
+    # model = "llama-3B"
 
     # scenario_file = "Scenario/test_ces_llm_questions_all_categories_100.json"
     scenario_file = "Scenario/ces_llm_questions_all_categories_100.json"
