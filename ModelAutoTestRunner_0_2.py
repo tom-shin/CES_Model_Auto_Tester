@@ -121,10 +121,10 @@ def run_conversation_processor(execute_info, model):
             recrusive_process.expect_exact("[Input]:")
             # print("[Interactive session ready - MAMBA ✅]")
         elif "llama-8B" in model_file:
-            recrusive_process.expect("Please enter your question:")
+            recrusive_process.expect_exact("Please enter your question:")
             # print("[Interactive session ready - llama-8b ✅]")
         else:
-            recrusive_process.expect(r'- Not using system message.')
+            recrusive_process.expect('- Not using system message. To change it, set a different value via -sys PROMPT')
             # print("[Interactive session ready - LLAMA ✅]")
     except pexpect.TIMEOUT:
         print("[ERROR] Timeout waiting for interactive prompt")
@@ -167,6 +167,44 @@ def response_mamba(llm_processor):
 
     return output_lines
 
+
+def response_llama_1b3b_gguf(llm_processor):
+    all_lines = ""
+
+    def to_text(x):
+        if isinstance(x, bytes):
+            return x.decode('utf-8', errors='ignore')
+        return x if x is not None else ""
+
+    while True:
+        try:
+            # 정규식 말고 문자열 포함 여부를 위해 우선 ANY 문자만 매칭
+            idx = llm_processor.expect([r'.+', pexpect.EOF, pexpect.TIMEOUT],
+                                       timeout=120)
+        except pexpect.TIMEOUT:
+            print("\n[WARN] Timeout…")
+            break
+        except pexpect.EOF:
+            print("\n[INFO] Process finished")
+            break
+
+        # 직전 출력 + 매칭된 문자열(이번 라인 전체)
+        before_txt = to_text(llm_processor.before)
+        matched_txt = to_text(llm_processor.match.group())
+
+        # 한 줄로 합쳐서 저장
+        full_line = before_txt + matched_txt
+        all_lines += full_line
+
+        # 문자열 포함 여부만으로 체크
+        if "[INFO_TSK]" in full_line:
+            break
+
+    return [all_lines]
+
+
+
+
 def response_llama_8b(llm_processor):
     all_lines = []
 
@@ -202,6 +240,9 @@ def run_conversation(llm_processor, prompt, execute_info, model):
     if "llama-8B" in execute_info[model]["model"]:
         output_lines = response_llama_8b(llm_processor=llm_processor)
 
+    elif "gguf" in execute_info[model]["model"]:
+        output_lines = response_llama_1b3b_gguf(llm_processor=llm_processor)
+
 
     inference_result = parse_output_conversation(prompt, output_lines, execute_info, model)
     return inference_result
@@ -227,7 +268,7 @@ def parse_output_conversation(prompt, output_lines: list, execute_info, model):
             lines = list2string.splitlines()
 
             info_lines = lines[-1]
-            inference_lines = "\n".join(lines[:-2])
+            inference_lines = "\n".join(lines[1:-2])
         except:
             inference_lines = "idx error"
             info_lines = "not exist"
@@ -237,6 +278,17 @@ def parse_output_conversation(prompt, output_lines: list, execute_info, model):
             "Inference Result": inference_lines,
             "Detailed Items": info_lines
         }
+    elif "gguf" in execute_info[model]["model"]:
+        sep = "".join(output_lines).split("[INFO_TSK]")
+
+        full = sep[0].replace(prompt, "", 1)
+        result = {
+            "Question": prompt,
+            "Inference Result": "".join(full),
+            "Detailed Items": rf"[INFO_TSK]{sep[1]}"
+        }
+
+
 
     return result
 
@@ -364,9 +416,9 @@ def main(file_path, language, execute_info, model):
         print(f"{RED}[KILL] [Recrusive] -Existing LLM processes...{RESET}")
         kill_running_processes()
         time.sleep(2)
-        llm_processor = run_conversation_processor(execute_info, model)
+        llm_processor = run_conversation_processor(execute_info, model)   # PROCESS 시작
 
-    
+
     all_results = []
     idx = 1
     total_cnt = sum(len(v) for v in questions.values())
@@ -449,14 +501,14 @@ def get_model_info():
         },
         "llama-1B": {
             "execute_cmd": "llama-cli",
-            "execute_path": "/data/local/tmp/GPU_LLAMA_USE_VULKAN/",
-            "model": "llama-3.2-1b-instruct-q4_k_m.gguf",
+            "execute_path": "/data/local/tmp/CPU_GPU_LLAMA/",
+            "model": "llama-1b.gguf",
             "type": "Recrusive"
         },
         "llama-3B": {
             "execute_cmd": "llama-cli",
-            "execute_path": "/data/local/tmp/GPU_LLAMA_USE_VULKAN/",
-            "model": "llama-3.2-3b-instruct-q4_k_m.gguf",
+            "execute_path": "/data/local/tmp/CPU_GPU_LLAMA/",
+            "model": "llama-3B.gguf",
             "type": "Recrusive"
         },
         "llama-8B": {
@@ -477,12 +529,12 @@ if __name__ == "__main__":
     # test_language = "Chinese"
 
     # model = "NNC-Mamba"
-    model = "llama-8B"
+    # model = "llama-8B"
     # model = "llama-1B"
-    # model = "llama-3B"
+    model = "llama-3B"
 
-    scenario_file = "Scenario/test_ces_llm_questions_all_categories_100.json"
-    # scenario_file = "Scenario/ces_llm_questions_all_categories_100.json"
+    # scenario_file = "Scenario/test_ces_llm_questions_all_categories_100.json"
+    scenario_file = "Scenario/ces_llm_questions_all_categories_100.json"
 
     ##################### User Selection End #####################
     
