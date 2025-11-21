@@ -1,8 +1,12 @@
 {
   "Science": [
+    {
+      "English": "explain quantum computing in some items. ?",
+      "Chinese": "你能解释一下黑洞吗？"
+    },
 
     {
-      "English": "What is quantum computing ?",
+      "English": "black hole ?",
       "Chinese": "你能解释一下黑洞吗？"
     }
 

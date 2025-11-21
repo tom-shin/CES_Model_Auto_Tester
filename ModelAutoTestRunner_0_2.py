@@ -14,7 +14,7 @@ import pexpect
 from sqlalchemy.sql.operators import truediv
 
 
-G_TEST = True
+G_TEST = False
 
 # Relevance (관련성): 답변이 질문과 얼마나 관련 있는지. 질문의 의도와 맥락에 맞는 답변인지 평가.
 # Factuality (사실성): 답변 내용이 사실에 근거했는지, 정확한 정보를 제공하는지 평가.
