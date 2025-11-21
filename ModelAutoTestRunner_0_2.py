@@ -11,6 +11,63 @@ import adbutils
 import openpyxl
 from openpyxl.styles import Alignment
 import pexpect
+from sqlalchemy.sql.operators import truediv
+
+
+G_TEST = True
+
+# Relevance (관련성): 답변이 질문과 얼마나 관련 있는지. 질문의 의도와 맥락에 맞는 답변인지 평가.
+# Factuality (사실성): 답변 내용이 사실에 근거했는지, 정확한 정보를 제공하는지 평가.
+# Fluency (문장 자연스러움): 문장이 얼마나 자연스럽고 읽기 쉬운지, 문법과 표현이 매끄러운지 평가.
+# Helpfulness (도움이 되는 정도): 답변이 실제로 질문자의 문제 해결이나 이해에 얼마나 도움 되는지 평가.
+# 즉, Relevance는 “맞는 내용인가?”, Factuality는 “진짜 맞는 정보인가?”, Fluency는 “읽기 편한가?”, Helpfulness는 “실제로 도움이 되는가?” 정도로 이해하면 됩니다
+
+
+if G_TEST:
+    from openai import OpenAI
+    key = ["sk-", "BucaNVm1ibsxPUnxvWq8T3BlbkFJRGWPgBcKMtn1aorR2eYX"]
+    client = OpenAI(api_key=rf"{key[0]}{key[1]}")
+
+    JUDGE_PROMPT = """
+    You are a professional evaluator who objectively assesses LLM responses.
+    Please score the response using the following criteria:
+
+    Relevance: 1~5
+    Factuality: 1~5
+    Fluency: 1~5
+    Helpfulness: 1~5
+
+    Output must be in the exact JSON format below:
+    {{
+      "id": "{id}",
+      "Relevance": <int>,
+      "Factuality": <int>,
+      "Fluency": <int>,
+      "Helpfulness": <int>,
+      "comment": "<short comment>"
+    }}
+    """
+
+    # JUDGE_PROMPT = """
+    #     You are a professional evaluator who objectively assesses LLM responses.
+    #     Please score the response using the following criteria:
+    #
+    #     Relevance: 1~5
+    #     Factuality: 1~5
+    #     Fluency: 1~5
+    #     Helpfulness: 1~5
+    #
+    #     Output must be in the exact JSON format below:
+    #     {{
+    #       "id": "<id>",
+    #       "Relevance": <int>,
+    #       "Factuality": <int>,
+    #       "Fluency": <int>,
+    #       "Helpfulness": <int>,
+    #       "comment": "<short comment>"
+    #     }}
+    #
+    #     """
 
 # Windows 콘솔 UTF-8 인코딩 설정
 if sys.platform == 'win32':
@@ -303,7 +360,7 @@ def remove_ansi_codes(text):
     ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
     return ansi_escape.sub('', text)
 
-def parse_output(output_text):
+def parse_output(output_text, prompt):
     """
     Mamba 출력 파싱:
     - inference_result: 실제 답변 텍스트
@@ -321,20 +378,28 @@ def parse_output(output_text):
             if "** Profile Summary **" in line:
                 profile_capture = True
             if profile_capture:
-                # [INFO_TSK] 라인은 제외
+                # [INFO_TSK] 라인은 여기선 제외
                 if not line.startswith("[INFO_TSK]"):
                     stripped_line = line.rstrip()
                     if stripped_line:  # 빈 줄 제거
                         info_lines.append(stripped_line)
 
         # ----------------------------
-        # 2) [INFO_TSK] 값 추출 후 >> 라인으로 추가
+        # 2) [INFO_TSK] 값 추출 후 요약 추가
         # ----------------------------
-        info_tsk_pattern = re.compile(r"\[INFO_TSK\]\s*(\d+),\s*(\d+),\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)")
+        info_tsk_pattern = re.compile(
+            r"\[INFO_TSK\]\s*(\d+),\s*(\d+),\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)"
+        )
 
-        for line in lines:
+        info_tsk_found = False
+        info_tsk_index = None
+
+        for idx, line in enumerate(lines):
             match = info_tsk_pattern.search(line)
             if match:
+                info_tsk_found = True
+                info_tsk_index = idx
+
                 token_generation_length_inference = int(match.group(1))
                 token_generation_length_prompt = int(match.group(2))
                 input_token_processing_speed = float(match.group(3))
@@ -343,29 +408,123 @@ def parse_output(output_text):
 
                 info_lines.append("")
                 info_lines.append("")
-                # [INFO_TSK] 내용은 출력하지 않고, >> 요약만 출력
                 info_lines.append(f">> Token Generation Length Inference: {token_generation_length_inference}")
                 info_lines.append(f">> Token Generation Length Prompt: {token_generation_length_prompt}")
                 info_lines.append(f">> Input Token Processing Speed: {input_token_processing_speed:.2f} tps")
                 info_lines.append(f">> Token Generation Processing Speed: {token_generation_processing_speed:.2f} tps")
                 info_lines.append(f">> Total Processing Latency (runPipeline): {total_processing_latency:.2f} s")
 
-                break  # [INFO_TSK]는 1개만 있음          
-        
+                break  # [INFO_TSK] 1개만 존재
+
+        # ----------------------------------------------------
+        # 2-추가) [INFO_TSK] 이후 원본 텍스트 전체 info_lines 마지막에 추가
+        # ----------------------------------------------------
+        if info_tsk_found and info_tsk_index is not None:
+            info_lines.append("")            
+
+            for tail_line in lines[info_tsk_index:]:
+                if tail_line.strip():
+                    info_lines.append(tail_line.rstrip())
 
         # ----------------------------
         # 3) inference_result 추출
         # ----------------------------
-        mamba_pattern = r"🐍 Mamba:\s*(.*?)(?=\*\* Profile Summary \*\*|$)"
-        mamba_match = re.search(mamba_pattern, output_text, re.DOTALL)
-        inference_result = mamba_match.group(1).strip() if mamba_match else ""
-        inference_result = remove_ansi_codes(inference_result)
+        try:
+            # 출력 시작 → Profile Summary 전까지가 모델 답변
+            mamba_pattern = r"^(.*?)(?=\*\* Profile Summary \*\*|$)"
+            mamba_match = re.search(mamba_pattern, output_text, re.DOTALL)
+            inference_result = mamba_match.group(1).strip() if mamba_match else ""
+            inference_result = remove_ansi_codes(inference_result)
+
+            # -----------------------------------------------
+            # 🔥 prompt가 inference_result 앞에 포함된 경우 제거
+            # -----------------------------------------------
+            if prompt and prompt in inference_result:
+                cut_index = inference_result.find(prompt)
+                inference_result = inference_result[cut_index + len(prompt):].strip()
+
+            # ------------------------------------------------
+            # 🔥 NEW: inference_result에서 [INFO_TSK] 이후는 삭제
+            # ------------------------------------------------
+            tsk_pos = inference_result.find("[INFO_TSK]")
+            if tsk_pos != -1:
+                inference_result = inference_result[:tsk_pos].rstrip()
+
+        except:
+            inference_result = ""
 
         return inference_result, info_lines
 
     except Exception as e:
-        print(f"[WARN] parse_mamba_output failed: {e}")
+        print(f"[WARN] parse_output failed: {e}")
         return "", ["Parsing failed"]
+
+
+
+
+    #
+    # """
+    # Mamba 출력 파싱:
+    # - inference_result: 실제 답변 텍스트
+    # - info_lines: 통계/정보 텍스트 리스트 (빈 줄 제거)
+    # """
+    # try:
+    #     lines = output_text.splitlines()
+    #     info_lines = []
+    #
+    #     # ----------------------------
+    #     # 1) Profile Summary / Duration 라인 그대로 info_lines에 추가
+    #     # ----------------------------
+    #     profile_capture = False
+    #     for line in lines:
+    #         if "** Profile Summary **" in line:
+    #             profile_capture = True
+    #         if profile_capture:
+    #             # [INFO_TSK] 라인은 제외
+    #             if not line.startswith("[INFO_TSK]"):
+    #                 stripped_line = line.rstrip()
+    #                 if stripped_line:  # 빈 줄 제거
+    #                     info_lines.append(stripped_line)
+    #
+    #     # ----------------------------
+    #     # 2) [INFO_TSK] 값 추출 후 >> 라인으로 추가
+    #     # ----------------------------
+    #     info_tsk_pattern = re.compile(r"\[INFO_TSK\]\s*(\d+),\s*(\d+),\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)")
+    #
+    #     for line in lines:
+    #         match = info_tsk_pattern.search(line)
+    #         if match:
+    #             token_generation_length_inference = int(match.group(1))
+    #             token_generation_length_prompt = int(match.group(2))
+    #             input_token_processing_speed = float(match.group(3))
+    #             token_generation_processing_speed = float(match.group(4))
+    #             total_processing_latency = float(match.group(5))
+    #
+    #             info_lines.append("")
+    #             info_lines.append("")
+    #             # [INFO_TSK] 내용은 출력하지 않고, >> 요약만 출력
+    #             info_lines.append(f">> Token Generation Length Inference: {token_generation_length_inference}")
+    #             info_lines.append(f">> Token Generation Length Prompt: {token_generation_length_prompt}")
+    #             info_lines.append(f">> Input Token Processing Speed: {input_token_processing_speed:.2f} tps")
+    #             info_lines.append(f">> Token Generation Processing Speed: {token_generation_processing_speed:.2f} tps")
+    #             info_lines.append(f">> Total Processing Latency (runPipeline): {total_processing_latency:.2f} s")
+    #
+    #             break  # [INFO_TSK]는 1개만 있음
+    #
+    #
+    #     # ----------------------------
+    #     # 3) inference_result 추출
+    #     # ----------------------------
+    #     mamba_pattern = r"🐍 Mamba:\s*(.*?)(?=\*\* Profile Summary \*\*|$)"
+    #     mamba_match = re.search(mamba_pattern, output_text, re.DOTALL)
+    #     inference_result = mamba_match.group(1).strip() if mamba_match else ""
+    #     inference_result = remove_ansi_codes(inference_result)
+    #
+    #     return inference_result, info_lines
+    #
+    # except Exception as e:
+    #     print(f"[WARN] parse_mamba_output failed: {e}")
+    #     return "", ["Parsing failed"]
 
 def run_single_shot(prompt, execute_info, model):
     print(f"{RED}[KILL] Existing LLM processes...{RESET}")
@@ -401,7 +560,7 @@ def run_single_shot(prompt, execute_info, model):
     process.wait()
     output = ''.join(output_lines)
 
-    inference_result, profile_info = parse_output(output)
+    inference_result, profile_info = parse_output(output, prompt)
 
     return {
         "Question": prompt,
@@ -409,10 +568,57 @@ def run_single_shot(prompt, execute_info, model):
         "Detailed Items": profile_info
     }
 
+def execute_g_eval(idx, result):
+    prompt = result["Question"]
+    output = result["Inference Result"]
+
+    # 단일 데이터
+    idx += 1
+    item = {
+        "id": str(idx),
+        "question": prompt,
+        "reference_answer": "",
+        "model_answer": output
+    }
+
+    prompt = JUDGE_PROMPT.format(
+        id=item["id"],
+        question=item["question"],
+        reference_answer=item.get("reference_answer", "N/A"),
+        model_answer=item["model_answer"]
+    )
+
+    # OpenAI API 호출
+    completion = client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0.0,
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    # 수정 포인트: 객체 속성으로 접근
+    resp_text = completion.choices[0].message.content
+
+    # JSON 파싱
+    try:
+        parsed = json.loads(resp_text)
+        # parsed["question"] = item["question"]
+        # parsed["answer"] = item["model_answer"]
+    except:
+        parsed = {
+            "id": item["id"],
+            "error": "JSON_parse_failed",
+            "raw": resp_text
+        }
+
+    return json.dumps(parsed, ensure_ascii=False, indent=2)
+
+
+
+
+
+
 def main(file_path, language, execute_info, model):
 
-    device_exist = None
-    all_results = []
     llm_processor = None
 
     with open(file_path, "r", encoding="utf-8") as f:
@@ -448,6 +654,10 @@ def main(file_path, language, execute_info, model):
             else:
                 result = run_conversation(llm_processor, prompt, execute_info, model)
 
+            if G_TEST:
+                g_score = execute_g_eval(cnt_idx, result)
+                result["G-Eval"] = g_score
+
             all_results.append(result)
             print(f"{BLUE}=================== 현재 Category: {category},  ({idx}/{total_cnt}) th Test Done. {round(idx/total_cnt*100, 2)} %. ==================={RESET}\n")
             idx += 1
@@ -482,12 +692,23 @@ def data_save(all_results, language):
     excel_data = []
 
     for result in all_results:
-        row = {
-            "Question": result["Question"],
-            "Inference Result": result["Inference Result"],
-            "Detailed Items": "\n".join(result["Detailed Items"]) if isinstance(result["Detailed Items"],
-                                                                                list) else str(result["Detailed Items"])
-        }
+        if G_TEST:
+            row = {
+                "Question": result["Question"],
+                "Inference Result": result["Inference Result"],
+                "Detailed Items": "\n".join(result["Detailed Items"]) if isinstance(result["Detailed Items"],
+                                                                                    list) else str(result["Detailed Items"]),
+                "G-Eval": result["G-Eval"]
+            }
+        else:
+            row = {
+                "Question": result["Question"],
+                "Inference Result": result["Inference Result"],
+                "Detailed Items": "\n".join(result["Detailed Items"]) if isinstance(result["Detailed Items"],
+                                                                                    list) else str(result["Detailed Items"])
+            }
+
+
         excel_data.append(row)
 
     df = pd.DataFrame(excel_data)
@@ -539,16 +760,16 @@ if __name__ == "__main__":
 
     ##################### User Selection #####################
 
-    # test_language = "English"   # 또는 "Chinese"
-    test_language = "Chinese"
+    test_language = "English"   # 또는 "Chinese"
+    # test_language = "Chinese"
 
-    # model = "NNC-Mamba"
-    model = "llama-8B"
+    model = "NNC-Mamba"
+    # model = "llama-8B"
     # model = "llama-1B"
     # model = "llama-3B"
 
-    # scenario_file = "Scenario/test_ces_llm_questions_all_categories_100.json"
-    scenario_file = "Scenario/ces_llm_questions_all_categories_100.json"
+    scenario_file = "Scenario/test_ces_llm_questions_all_categories_100.json"
+    # scenario_file = "Scenario/ces_llm_questions_all_categories_100.json"
 
     ##################### User Selection End #####################
     
