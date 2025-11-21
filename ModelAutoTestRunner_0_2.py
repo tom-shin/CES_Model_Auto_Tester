@@ -26,48 +26,8 @@ G_TEST = True
 if G_TEST:
     from openai import OpenAI
     key = ["sk-", "BucaNVm1ibsxPUnxvWq8T3BlbkFJRGWPgBcKMtn1aorR2eYX"]
-    client = OpenAI(api_key=rf"{key[0]}{key[1]}")
-
-    JUDGE_PROMPT = """
-    You are a professional evaluator who objectively assesses LLM responses.
-    Please score the response using the following criteria:
-
-    Relevance: 1~5
-    Factuality: 1~5
-    Fluency: 1~5
-    Helpfulness: 1~5
-
-    Output must be in the exact JSON format below:
-    {{
-      "id": "{id}",
-      "Relevance": <int>,
-      "Factuality": <int>,
-      "Fluency": <int>,
-      "Helpfulness": <int>,
-      "comment": "<short comment>"
-    }}
-    """
-
-    # JUDGE_PROMPT = """
-    #     You are a professional evaluator who objectively assesses LLM responses.
-    #     Please score the response using the following criteria:
-    #
-    #     Relevance: 1~5
-    #     Factuality: 1~5
-    #     Fluency: 1~5
-    #     Helpfulness: 1~5
-    #
-    #     Output must be in the exact JSON format below:
-    #     {{
-    #       "id": "<id>",
-    #       "Relevance": <int>,
-    #       "Factuality": <int>,
-    #       "Fluency": <int>,
-    #       "Helpfulness": <int>,
-    #       "comment": "<short comment>"
-    #     }}
-    #
-    #     """
+    client = OpenAI(api_key=rf"{key[0]}{key[1]}")            
+    
 
 # Windows 콘솔 UTF-8 인코딩 설정
 if sys.platform == 'win32':
@@ -572,7 +532,6 @@ def execute_g_eval(idx, result):
     prompt = result["Question"]
     output = result["Inference Result"]
 
-    # 단일 데이터
     idx += 1
     item = {
         "id": str(idx),
@@ -581,28 +540,47 @@ def execute_g_eval(idx, result):
         "model_answer": output
     }
 
-    prompt = JUDGE_PROMPT.format(
-        id=item["id"],
-        question=item["question"],
-        reference_answer=item.get("reference_answer", "N/A"),
-        model_answer=item["model_answer"]
-    )
+    # 평가용 프롬프트에 질문과 모델 답변 포함
+    eval_prompt = f"""
+You are a professional evaluator who objectively assesses LLM responses.
+Reference answer: ""
+Question: {item['question']}
+Model answer: {item['model_answer']}
+
+Please score the response using the following criteria:
+Relevance: 1~5
+Factuality: 1~5
+Fluency: 1~5
+Helpfulness: 1~5
+
+Output must be in the exact JSON format below (no extra fields):
+{{
+  "id": "{item['id']}",
+  "Relevance": <int>,
+  "Factuality": <int>,
+  "Fluency": <int>,
+  "Helpfulness": <int>,
+  "comment": "<short comment>"
+}}
+"""
 
     # OpenAI API 호출
     completion = client.chat.completions.create(
         model="gpt-4o-mini",
         temperature=0.0,
-        messages=[{"role": "user", "content": prompt}]
+        messages=[{"role": "user", "content": eval_prompt}]
     )
 
-    # 수정 포인트: 객체 속성으로 접근
     resp_text = completion.choices[0].message.content
 
-    # JSON 파싱
+    # JSON 파싱 후 질문/모델 답변 제외
     try:
         parsed = json.loads(resp_text)
-        # parsed["question"] = item["question"]
-        # parsed["answer"] = item["model_answer"]
+
+        # 질문과 모델 답변 제거 (만약 모델가 포함했을 경우 안전하게)
+        keys_to_keep = ["id", "Relevance", "Factuality", "Fluency", "Helpfulness", "comment"]
+        parsed = {k: parsed[k] for k in keys_to_keep if k in parsed}
+
     except:
         parsed = {
             "id": item["id"],
@@ -611,10 +589,6 @@ def execute_g_eval(idx, result):
         }
 
     return json.dumps(parsed, ensure_ascii=False, indent=2)
-
-
-
-
 
 
 def main(file_path, language, execute_info, model):
