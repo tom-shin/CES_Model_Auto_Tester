@@ -75,9 +75,9 @@ def check_adb_devices():
     else:
         return True
 
-def remove_ansi_codes(text):
-    ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
-    return ansi_escape.sub('', text)
+# def remove_ansi_codes(text):
+#     ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
+#     return ansi_escape.sub('', text)
 
 def kill_running_processes():
     kill_cmds = [
@@ -135,7 +135,7 @@ def run_conversation_processor(execute_info, model):
     try:
         if "Mamba" in model_file:
             # recrusive_process.expect(r'\[Input\]:')
-            recrusive_process.expect_exact("[Input]:")
+            recrusive_process.expect_exact("Please enter your question:")
             # print("[Interactive session ready - MAMBA ✅]")
         elif "llama-8B" in model_file:
             recrusive_process.expect_exact("Please enter your question:")
@@ -225,7 +225,26 @@ def response_llama_1b3b_gguf(llm_processor):
     return [all_lines]
 
 
+def response_llama_mamba(llm_processor):
+    all_lines = []
 
+    while True:
+        try:
+            idx = llm_processor.expect([r'Please enter your question:', pexpect.EOF, pexpect.TIMEOUT], timeout=120)
+        except pexpect.TIMEOUT:
+            print("\n[WARN] Timeout…")
+            break
+        except pexpect.EOF:
+            print("\n[INFO] Process finished")
+            break
+
+        # 스트림 출력 누적
+        all_lines.append(llm_processor.before)
+
+        if idx == 0:
+            break
+
+    return all_lines
 
 def response_llama_8b(llm_processor):
     all_lines = []
@@ -265,6 +284,9 @@ def run_conversation(llm_processor, prompt, execute_info, model):
     elif "gguf" in execute_info[model]["model"]:
         output_lines = response_llama_1b3b_gguf(llm_processor=llm_processor)
 
+    elif "Mamba" in execute_info[model]["model"]:
+        output_lines = response_llama_mamba(llm_processor=llm_processor)
+
 
     inference_result = parse_output_conversation(prompt, output_lines, execute_info, model)
     return inference_result
@@ -290,14 +312,14 @@ def parse_output_conversation(prompt, output_lines: list, execute_info, model):
             lines = list2string.splitlines()
 
             info_lines = lines[-1]
-            inference_lines = "\n".join(lines[1:-2])
+            inference_lines = "\n".join(lines[1:-1])
         except:
             inference_lines = "idx error"
             info_lines = "not exist"
 
         result = {
             "Question": prompt,
-            "Inference Result": inference_lines,
+            "Inference Result": remove_ansi(text=inference_lines),
             "Detailed Items": info_lines
         }
     elif "gguf" in execute_info[model]["model"]:
@@ -313,12 +335,31 @@ def parse_output_conversation(prompt, output_lines: list, execute_info, model):
         except:
             pass
 
+    elif "Mamba" in execute_info[model]["model"]:
+        try:
+            list2string = "".join(output_lines)
+            lines = list2string.splitlines()
+
+            info_lines = lines[-1]
+            inference_lines = "\n".join(lines[1:-1])
+        except:
+            inference_lines = "idx error"
+            info_lines = "not exist"
+
+        result = {
+            "Question": prompt,
+            "Inference Result": remove_ansi(text=inference_lines),
+            "Detailed Items": info_lines
+        }
+
     return result
 
 
 def remove_ansi_codes(text):
-    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-    return ansi_escape.sub('', text)
+    ansi_escape = remove_ansi(text=text)
+    return ansi_escape
+    # ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    # return ansi_escape.sub('', text)
 
 def parse_output(output_text, prompt):
     """
@@ -706,7 +747,7 @@ def get_model_info():
             "execute_cmd": "MambaTest",
             "execute_path": "/data/local/tmp/MAMBA/",
             "model": "Mamba",
-            "type": "One-Shot"   #"One-Shot"
+            "type": "One-Shot"    #"Recrusive"
         },
         "llama-1B": {
             "execute_cmd": "llama-cli",
@@ -742,8 +783,8 @@ if __name__ == "__main__":
     # model = "llama-1B"
     # model = "llama-3B"
 
-    scenario_file = "Scenario/test_ces_llm_questions_all_categories_100.json"
-    # scenario_file = "Scenario/ces_llm_questions_all_categories_100.json"
+    # scenario_file = "Scenario/test_ces_llm_questions_all_categories_100.json"
+    scenario_file = "Scenario/ces_llm_questions_all_categories_100.json"
 
     ##################### User Selection End #####################
     
